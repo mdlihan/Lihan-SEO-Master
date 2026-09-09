@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lihan SEO Master </title>
+    <link rel="icon" type="image/png" href="icon.png?v=3">
+    
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+</head>
+<body>
+    <div class="layout">
+        <!-- Mobile Header Bar -->
+        <div class="mobile-header">
+            <h1>🚀 Lihan SEO Master</h1>
+            <button id="mobileMenuBtn" class="menu-toggle-btn" aria-label="Menu">☰</button>
+        </div>
+
+        <aside class="sidebar" id="sidebarPanel">
+            <div class="sidebar-top-bar">
+                <h2>⚙️ API & AI Settings</h2>
+                <button id="sidebarCloseBtn" class="sidebar-close-btn">✕</button>
+            </div>
+            <form id="settingsForm">
+                <div class="form-group">
+                    <label>Select AI Provider</label>
+                    <select id="aiProvider" class="ai-selector">
+                        <option value="gemini">Google Gemini</option>
+                        <option value="grok">Grok (xAI)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Select Model</label>
+                    <select id="aiModel"></select>
+                    <input type="text" id="customModelInput" class="edit-input" placeholder="Type model name..." style="display: none; margin-top: 8px;">
+                </div>
+                <div class="form-group">
+                    <label>API Keys *</label>
+                    <div id="apiKeysList">
+                         <div id="apiKeysContainer"></div>
+                    </div>
+                    <button type="button" id="addApiKeyBtn" class="btn-outline">➕ Add API Key</button>
+                </div>
+                <h2 class="metadeta-settings-title">Metadata Settings</h2>
+                <div class="form-group">
+                    <label>Image Type</label>
+                    <select id="imageType">
+                        <option value="Photography">Photography</option>
+                        <option value="Vector Illustration">Vector / Illustration</option>
+                        <option value="3D Render">3D Render</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Title Words: <span id="titleVal" class="val-badge">10</span></label>
+                    <input type="range" id="titleWords" min="3" max="30" value="10">
+                </div>
+                <div class="form-group">
+                    <label>Description Words: <span id="descVal" class="val-badge">30</span></label>
+                    <input type="range" id="descWords" min="10" max="100" value="30">
+                </div>
+                <div class="form-group">
+                    <label>Number of Tags: <span id="tagVal" class="val-badge">25</span></label>
+                    <input type="range" id="tagCount" min="5" max="50" value="25">
+                </div>
+                <!-- Batch Processing Slider -->
+             <div class="form-group">
+                   <label>Batch Processing: <span id="batchSizeVal" class="val-badge">2</span></label>
+                 <input type="range" id="batchSize" min="1" max="10" value="2">
+             </div>
+                <div class="form-group">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="enableCustomPrompt"> Enable Custom Prompt
+                    </label>
+                    <textarea id="customPrompt" rows="3" placeholder="Additional instructions..." style="display: none; margin-top: 10px;" class="text-aria"></textarea>
+                </div>
+                <button type="submit" id="saveSettingsBtn" class="btn-primary">Save All Settings</button>
+                <p id="saveMsg" class="success-msg"></p>
+            </form>
+        </aside>
+
+        <main class="main-content">
+            <div class="header-stats">
+                <h1 class="desktop-main-title">🚀 Lihan SEO Master</h1>
+                <h3>Batch Processing... <span id="batchCountStatas">3</span></h3>
+                <div class="stats">
+                    Total: <span id="totalCount">0</span> | 
+                    Done: <span id="doneCount" style="color:#10b981;">0</span> | 
+                    Failed: <span id="failCount" style="color:#ef4444;">0</span>
+                </div>
+            </div>
+            <div id="dropArea" class="drop-area">
+                <p>📁 Drag & Drop Files (JPG, PNG, SVG, AI, EPS)<br><span>Click to browse</span></p>
+                <input type="file" id="imageInput" accept=".jpg, .jpeg, .png, .svg, .ai, .eps" multiple hidden>
+            </div>
+            <div class="action-bar">
+                <button id="startProcessBtn" class="btn-action">▶ Start SEO Generation</button>
+                <button id="retryFailedBtn" class="btn-action" style="display: none; background: #43bb81; color: white;">🔄 Retry Failed</button>
+                <div class="export-group">
+                    <select id="csvPlatform" class="platform-select">
+                        <option value="adobe">Adobe Stock CSV</option>
+                        <option value="shutterstock">Shutterstock CSV</option>
+                    </select>
+                    <button id="downloadCsvBtn" class="btn-export">📊 Export CSV</button>
+                </div>
+            </div>
+            <p id="statusText" class="status-text"></p>
+            <div class="preview-container">
+                <div id="fileList" class="file-list"></div>
+            </div>
+        </main>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
