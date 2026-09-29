@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lihan SEO Master </title>
+    <title>Lihan SEO Master</title>
     <link rel="icon" type="image/png" href="icon.png?v=3">
     
     <link rel="stylesheet" href="style.css">
@@ -23,57 +23,77 @@
                 <button id="sidebarCloseBtn" class="sidebar-close-btn">✕</button>
             </div>
             <form id="settingsForm">
+                <!-- AI Provider & Key Counter -->
                 <div class="form-group">
-                    <label>Select AI Provider</label>
+                    <label style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 5px;">
+                        <span>Select AI Provider</span>
+                        <span style="font-size: 11px; background: rgba(14, 165, 233, 0.15); padding: 3px 8px; border-radius: 12px; color: #0284c7; font-weight: bold;">
+                            Gemini: <span id="geminiKeyCount">0</span> | Mistral: <span id="mistralKeyCount">0</span>
+                        </span>
+                    </label>
                     <select id="aiProvider" class="ai-selector">
-                        <option value="gemini">Google Gemini</option>
-                        <option value="grok">Grok (xAI)</option>
+                        <option value="gemini">Google Gemini (Image & Video)</option>
+                        <option value="mistral">Mistral AI - Pixtral (Image Only)</option>
                     </select>
                 </div>
+
+                <!-- Select Model -->
                 <div class="form-group">
                     <label>Select Model</label>
                     <select id="aiModel"></select>
                     <input type="text" id="customModelInput" class="edit-input" placeholder="Type model name..." style="display: none; margin-top: 8px;">
                 </div>
+
+                <!-- 🔑 আগের মতোই API Keys বক্স -->
                 <div class="form-group">
-                    <label>API Keys *</label>
+                    <label>API Keys (<span id="activeProviderLabel">Gemini</span>) *</label>
                     <div id="apiKeysList">
                          <div id="apiKeysContainer"></div>
                     </div>
                     <button type="button" id="addApiKeyBtn" class="btn-outline">➕ Add API Key</button>
                 </div>
+
                 <h2 class="metadeta-settings-title">Metadata Settings</h2>
+
                 <div class="form-group">
-                    <label>Image Type</label>
+                    <label>Image / Asset Type</label>
                     <select id="imageType">
                         <option value="Photography">Photography</option>
                         <option value="Vector Illustration">Vector / Illustration</option>
                         <option value="3D Render">3D Render</option>
+                        <option value="Video Footage">Video / Footage</option>
+                        <option value="Motion Graphics">Motion Graphics</option>
                     </select>
                 </div>
+
                 <div class="form-group">
                     <label>Title Words: <span id="titleVal" class="val-badge">10</span></label>
                     <input type="range" id="titleWords" min="3" max="30" value="10">
                 </div>
+
                 <div class="form-group">
                     <label>Description Words: <span id="descVal" class="val-badge">30</span></label>
                     <input type="range" id="descWords" min="10" max="100" value="30">
                 </div>
+
                 <div class="form-group">
                     <label>Number of Tags: <span id="tagVal" class="val-badge">25</span></label>
                     <input type="range" id="tagCount" min="5" max="50" value="25">
                 </div>
+
                 <!-- Batch Processing Slider -->
-             <div class="form-group">
-                   <label>Batch Processing: <span id="batchSizeVal" class="val-badge">2</span></label>
-                 <input type="range" id="batchSize" min="1" max="10" value="2">
-             </div>
+                <div class="form-group">
+                    <label>Batch Processing: <span id="batchSizeVal" class="val-badge">4</span></label>
+                    <input type="range" id="batchSize" min="1" max="15" value="4">
+                </div>
+
                 <div class="form-group">
                     <label class="toggle-label">
                         <input type="checkbox" id="enableCustomPrompt"> Enable Custom Prompt
                     </label>
                     <textarea id="customPrompt" rows="3" placeholder="Additional instructions..." style="display: none; margin-top: 10px;" class="text-aria"></textarea>
                 </div>
+
                 <button type="submit" id="saveSettingsBtn" class="btn-primary">Save All Settings</button>
                 <p id="saveMsg" class="success-msg"></p>
             </form>
@@ -82,17 +102,24 @@
         <main class="main-content">
             <div class="header-stats">
                 <h1 class="desktop-main-title">🚀 Lihan SEO Master</h1>
-                <h3>Batch Processing... <span id="batchCountStatas">3</span></h3>
+                <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                    <h3 style="margin: 0;">Batch Processing... <span id="batchCountStatas">4</span></h3>
+                    <span id="liveApiKeyStatus" style="font-size: 13px; background: #e0f2fe; color: #0369a1; padding: 4px 10px; border-radius: 20px; font-weight: 600; border: 1px solid #bae6fd;">
+                        🔑 Active API: Ready
+                    </span>
+                </div>
                 <div class="stats">
                     Total: <span id="totalCount">0</span> | 
                     Done: <span id="doneCount" style="color:#10b981;">0</span> | 
                     Failed: <span id="failCount" style="color:#ef4444;">0</span>
                 </div>
             </div>
+
             <div id="dropArea" class="drop-area">
-                <p>📁 Drag & Drop Files (JPG, PNG, SVG, AI, EPS)<br><span>Click to browse</span></p>
-                <input type="file" id="imageInput" accept=".jpg, .jpeg, .png, .svg, .ai, .eps" multiple hidden>
+                <p>📁 Drag & Drop Files (JPG, PNG, SVG, AI, EPS, MP4, MOV)<br><span>Click to browse</span></p>
+                <input type="file" id="imageInput" accept=".jpg, .jpeg, .png, .webp, .svg, .ai, .eps, .mp4, .mov, .avi, .webm, .mkv" multiple hidden>
             </div>
+
             <div class="action-bar">
                 <button id="startProcessBtn" class="btn-action">▶ Start SEO Generation</button>
                 <button id="retryFailedBtn" class="btn-action" style="display: none; background: #43bb81; color: white;">🔄 Retry Failed</button>
@@ -104,12 +131,37 @@
                     <button id="downloadCsvBtn" class="btn-export">📊 Export CSV</button>
                 </div>
             </div>
+
             <p id="statusText" class="status-text"></p>
+
             <div class="preview-container">
                 <div id="fileList" class="file-list"></div>
             </div>
         </main>
     </div>
+
+    <!-- ⏳ API Limit Auto-Wait & Auto-Resume Popup Modal -->
+    <div id="limitPopupOverlay" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(5px); z-index: 99999; align-items: center; justify-content: center; padding: 20px;">
+        <div style="background: #ffffff; max-width: 420px; width: 100%; border-radius: 16px; padding: 25px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.3); border: 2px solid #f59e0b;">
+            <div style="font-size: 42px; margin-bottom: 10px;">⏳</div>
+            <h3 style="margin: 0 0 10px; color: #1e293b; font-size: 20px;">API Limit শেষ হয়েছে!</h3>
+            <p style="color: #475569; font-size: 14px; line-height: 1.5; margin-bottom: 18px;">
+                আপনার দেওয়া সবগুলো API Key-এর লিমিট সাময়িকভাবে শেষ হয়ে গেছে। নতুন লিমিট আসার জন্য অপেক্ষা করা হচ্ছে, লিমিট আসলেই <b>অটোমেটিক আবার SEO শুরু হবে!</b>
+            </p>
+            <div style="background: #fef3c7; color: #b45309; font-weight: 700; font-size: 16px; padding: 12px; border-radius: 10px; margin-bottom: 18px; border: 1px solid #fde68a;">
+                🔄 আবার শুরু হবে: <span id="limitCountdownText">45</span> সেকেন্ড পর...
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: center;">
+                <button type="button" id="resumeNowBtn" style="background: #0ea5e9; color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; flex: 1;">
+                    ⚡ এখনি ট্রাই করুন
+                </button>
+                <button type="button" id="stopWaitingBtn" style="background: #ef4444; color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; flex: 1;">
+                    ✖ থামিয়ে দিন
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script src="script.js"></script>
 </body>
 </html>
