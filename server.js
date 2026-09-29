@@ -1,82 +1,142 @@
+const dns = require('dns');
+// 🎯 Node.js-এর 'fetch failed' (IPv6) বাগ ফিক্স করার জন্য IPv4 ফোর্স করা হলো
+if (dns.setDefaultResultOrder) {
+    dns.setDefaultResultOrder('ipv4first');
+}
+
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
 const fs = require('fs');
+const https = require('https');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleAIFileManager } = require('@google/generative-ai/server');
 
 const app = express();
 app.use(cors());
 app.use(express.static('public'));
 app.use(express.json());
 
+if (!fs.existsSync('uploads')) { 
+    fs.mkdirSync('uploads'); 
+}
+
 const upload = multer({ dest: 'uploads/' });
 
-// 🧠 EPS/AI ফাইলের ভেতর থেকে লুকানো (Embedded) JPG প্রিভিউ বের করার ফাংশন
+let activeKeyPointer = {
+    gemini: 0,
+    mistral: 0
+};
+
+// 🚀 Node.js Native HTTPS Request (যাতে কখনোই 'fetch failed' না আসে)
+function httpsPostJson(urlString, headers, bodyObj) {
+    return new Promise((resolve, reject) => {
+        const url = new URL(urlString);
+        const payload = JSON.stringify(bodyObj);
+
+        const options = {
+            hostname: url.hostname,
+            path: url.pathname + url.search,
+            method: 'POST',
+            family: 4, // Force IPv4
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(payload),
+                ...headers
+            },
+            timeout: 60000 // 60 seconds timeout
+        };
+
+        const req = https.request(options, (res) => {
+            let rawData = '';
+            res.on('data', (chunk) => { rawData += chunk; });
+            res.on('end', () => {
+                let parsedData = {};
+                try { parsedData = JSON.parse(rawData); } catch (e) { parsedData = { raw: rawData }; }
+                resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, data: parsedData });
+            });
+        });
+
+        req.on('error', (err) => reject(err));
+        req.on('timeout', () => {
+            req.destroy();
+            reject(new Error('Request Timeout'));
+        });
+
+        req.write(payload);
+        req.end();
+    });
+}
+
 function extractEmbeddedPreview(filePath) {
     try {
-        // ফাইলটি রিড করা হচ্ছে
         const content = fs.readFileSync(filePath, 'utf8');
-        // ফাইলের ভেতরে থাকা XMP মেটাডাটা থেকে Base64 প্রিভিউ ইমেজটি খোঁজা হচ্ছে
         const match = content.match(/<xapGImg:image>(.*?)<\/xapGImg:image>/s) || 
                       content.match(/<xmpGImg:image>(.*?)<\/xmpGImg:image>/s);
-        
-        if (match && match[1]) {
-            // অপ্রয়োজনীয় স্পেস বা ক্যারেক্টার মুছে ক্লিন Base64 ইমেজ রিটার্ন করা হচ্ছে
-            const base64Data = match[1].replace(/&#xA;/g, '').replace(/\s/g, '');
-            return base64Data;
-        }
-    } catch (error) {
-        console.error("Preview extraction failed:", error.message);
-    }
+        if (match && match[1]) return match[1].replace(/&#xA;/g, '').replace(/\s/g, '');
+    } catch (error) {}
     return null;
 }
 
-// ======================== MAIN SEO GENERATION API ========================
+function parseAiJson(text) {
+    const cleanText = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : cleanText);
+    if (typeof parsed.tags === 'string') {
+        parsed.tags = parsed.tags.split(',').map(t => t.trim()).filter(Boolean);
+    }
+    return parsed;
+}
+
 app.post('/api/generate-seo', upload.single('image'), async (req, res) => {
     let fileToProcess = req.file?.path;
 
     try {
-        const { apiKeys, imageType, titleWords, descWords, tagCount, customPrompt } = req.body;
+        const { aiProvider = 'gemini', apiKeys, imageType, aiModel, titleWords, descWords, tagCount, customPrompt } = req.body;
         
         if (!apiKeys) return res.status(400).json({ error: "API Key is missing." });
 
         const keysArray = apiKeys.split(',').map(k => k.trim()).filter(k => k);
-        const originalName = req.file ? req.file.originalname : "Stock Asset";
-        const ext = originalName.split('.').pop().toLowerCase();
+        if (keysArray.length === 0) return res.status(400).json({ error: "No valid API keys provided." });
 
-        // 👁️ জেমিনিকে সরাসরি ছবির দৃশ্য দেখতে বলা হচ্ছে
-        let prompt = `You are an expert Microstock SEO specialist. Analyze the exact visual content, subject, and style directly from the image/preview provided. Generate engaging SEO metadata.
+        const originalName = req.body.originalName || (req.file ? req.file.originalname : "Stock Asset");
+        const ext = req.file ? req.file.originalname.split('.').pop().toLowerCase() : 'jpg';
+        const isVideo = ['mp4', 'mov', 'avi', 'webm', 'mkv'].includes(ext);
+
+        if (aiProvider === 'mistral' && isVideo) {
+            return res.status(400).json({ error: "Mistral AI does not support Video files! Switch to Gemini." });
+        }
+
+        let prompt = `You are an expert Microstock SEO specialist. Analyze the exact visual content directly from the image/video provided. Generate engaging SEO metadata.
+Asset Type: ${imageType || 'Photography'}
 Original File Name: ${originalName}
 Requirements:
 1. Title: Catchy, commercial, and descriptive (around ${titleWords} words).
 2. Description: Detailed, keyword-rich, and commercial (around ${descWords} words).
-3. Tags: Exactly ${tagCount} highly searchable microstock keywords (comma separated).
+3. Tags: Exactly ${tagCount} highly searchable microstock keywords (array of strings).
 ${customPrompt ? `Additional Instruction: ${customPrompt}` : ''}
 
 Respond STRICTLY in valid JSON format like this:
 {"title": "your title", "description": "your description", "tags": ["tag1", "tag2"]}`;
 
         let inlineDataObj = null;
+        let mimeType = req.file?.mimetype || 'video/mp4';
 
-        if (fileToProcess && fs.existsSync(fileToProcess)) {
+        if (!isVideo && fileToProcess && fs.existsSync(fileToProcess)) {
             if (ext === 'eps' || ext === 'ai') {
-                // EPS/AI এর ভেতর থেকে প্রিভিউ এক্সট্রাক্ট করার চেষ্টা
                 const embeddedBase64 = extractEmbeddedPreview(fileToProcess);
                 if (embeddedBase64) {
-                    console.log(`📸 Successfully extracted embedded JPG preview from ${originalName}`);
                     inlineDataObj = { data: embeddedBase64, mimeType: 'image/jpeg' };
                 } else {
-                    console.log(`⚠️ No embedded preview found. Passing as PDF document for ${originalName}`);
-                    // প্রিভিউ না পেলে AI ফাইলকে ডকুমেন্ট (PDF) হিসেবে পাস করবে, কারণ AI ফাইল মূলত পিডিএফ-ই হয়
                     const fileBuffer = fs.readFileSync(fileToProcess);
                     inlineDataObj = { data: fileBuffer.toString("base64"), mimeType: 'application/pdf' };
                 }
             } else {
-                // সাধারণ ইমেজ (JPG, PNG, WebP)
                 let mime = 'image/jpeg';
                 if (ext === 'png') mime = 'image/png';
                 else if (ext === 'webp') mime = 'image/webp';
                 else if (ext === 'svg') mime = 'image/svg+xml';
+                else if (ext === 'pdf') mime = 'application/pdf';
                 
                 const fileBuffer = fs.readFileSync(fileToProcess);
                 inlineDataObj = { data: fileBuffer.toString("base64"), mimeType: mime };
@@ -84,44 +144,187 @@ Respond STRICTLY in valid JSON format like this:
         }
 
         let seoResult = null;
-        let lastError = null;
-        const modelsToTry = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-1.5-flash'];
+        let lastErrorMessage = null;
+        let isLimitReached = false;
+        let usedKeyNumber = null;
+        let usedKeyHint = null;
 
-        for (let key of keysArray) {
-            let keySuccess = false;
-            for (let modelName of modelsToTry) {
-                try {
-                    const genAI = new GoogleGenerativeAI(key);
-                    const model = genAI.getGenerativeModel({ model: modelName });
-                    
-                    let result;
-                    if (inlineDataObj) {
-                        result = await model.generateContent([prompt, { inlineData: inlineDataObj }]);
-                    } else {
-                        // ফলব্যাক (যদি ফাইল রিড করতে না পারে)
-                        result = await model.generateContent([prompt + ` (Note: Analyze based on filename: ${originalName})`]);
-                    }
+        const startIdx = (activeKeyPointer[aiProvider] || 0) % keysArray.length;
 
-                    const responseText = result.response.text();
-                    const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-                    seoResult = JSON.parse(cleanJson);
-                    
-                    console.log(`✨ Visual AI Success with Model [${modelName}] for: ${originalName}`);
-                    keySuccess = true;
-                    break; 
-
-                } catch (err) {
-                    lastError = err;
-                    console.log(`⚠️ Model [${modelName}] failed. Trying next...`);
-                }
+        // ==========================================
+        // 🤖 MISTRAL AI (PIXTRAL VISION) LOGIC
+        // ==========================================
+        if (aiProvider === 'mistral') {
+            const validMistralModels = ['pixtral-12b-2409', 'pixtral-large-latest'];
+            let mistralModels = [...validMistralModels];
+            if (aiModel && aiModel !== 'auto' && validMistralModels.includes(aiModel)) {
+                mistralModels = mistralModels.filter(m => m !== aiModel);
+                mistralModels.unshift(aiModel);
             }
-            if (keySuccess) break;
+
+            for (let offset = 0; offset < keysArray.length; offset++) {
+                const keyIndex = (startIdx + offset) % keysArray.length;
+                const key = keysArray[keyIndex];
+                let keySuccess = false;
+                let skipKey = false;
+
+                for (let modelName of mistralModels) {
+                    if (skipKey) break;
+
+                    try {
+                        let contentArray = [{ type: "text", text: prompt }];
+                        if (inlineDataObj && inlineDataObj.mimeType.startsWith('image/')) {
+                            contentArray.push({
+                                type: "image_url",
+                                image_url: `data:${inlineDataObj.mimeType};base64,${inlineDataObj.data}`
+                            });
+                        } else {
+                            contentArray[0].text += `\n(Analyze based on filename: ${originalName})`;
+                        }
+
+                        const response = await httpsPostJson(
+                            'https://api.mistral.ai/v1/chat/completions',
+                            { 'Authorization': `Bearer ${key}` },
+                            {
+                                model: modelName,
+                                messages: [{ role: "user", content: contentArray }],
+                                response_format: { type: "json_object" }
+                            }
+                        );
+
+                        if (!response.ok) {
+                            throw new Error(`${response.status}: ${response.data?.message || JSON.stringify(response.data)}`);
+                        }
+
+                        const responseText = response.data.choices[0].message.content;
+                        seoResult = parseAiJson(responseText);
+
+                        activeKeyPointer.mistral = keyIndex;
+                        usedKeyNumber = keyIndex + 1;
+                        usedKeyHint = `..${key.slice(-4)}`;
+                        console.log(`✨ Success with Mistral Key #${usedKeyNumber} [${modelName}] for: ${originalName}`);
+                        keySuccess = true;
+                        break;
+                    } catch (err) {
+                        lastErrorMessage = err.message;
+                        console.log(`⚠️ Mistral Key #${keyIndex + 1} [${modelName}] Error:`, err.message);
+                        if (err.message.includes('429') || err.message.toLowerCase().includes('rate') || err.message.toLowerCase().includes('quota')) {
+                            isLimitReached = true;
+                            skipKey = true;
+                        } else if (err.message.includes('401') || err.message.toLowerCase().includes('unauthorized')) {
+                            skipKey = true;
+                        }
+                    }
+                }
+                if (keySuccess) break;
+            }
+        } 
+        // ==========================================
+        // ⚡ GOOGLE GEMINI AI LOGIC
+        // ==========================================
+        else {
+            const validGeminiModels = ['gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-1.5-pro'];
+            let modelsToTry = [...validGeminiModels];
+            if (aiModel && aiModel !== 'auto' && validGeminiModels.includes(aiModel)) {
+                modelsToTry = modelsToTry.filter(m => m !== aiModel);
+                modelsToTry.unshift(aiModel); 
+            }
+
+            for (let offset = 0; offset < keysArray.length; offset++) {
+                const keyIndex = (startIdx + offset) % keysArray.length;
+                const key = keysArray[keyIndex];
+                let keySuccess = false;
+                let skipKey = false; 
+
+                for (let modelName of modelsToTry) {
+                    if (skipKey) break;
+
+                    try {
+                        let responseText = '';
+
+                        if (isVideo && fileToProcess) {
+                            const genAI = new GoogleGenerativeAI(key);
+                            const model = genAI.getGenerativeModel({ model: modelName });
+                            const fileManager = new GoogleAIFileManager(key);
+                            const uploadResult = await fileManager.uploadFile(fileToProcess, {
+                                mimeType: mimeType,
+                                displayName: originalName,
+                            });
+
+                            let fileState = await fileManager.getFile(uploadResult.file.name);
+                            while (fileState.state === "PROCESSING") {
+                                await new Promise(resolve => setTimeout(resolve, 3000));
+                                fileState = await fileManager.getFile(uploadResult.file.name);
+                            }
+
+                            if (fileState.state === "FAILED") throw new Error("Video processing failed.");
+
+                            const result = await model.generateContent([
+                                prompt,
+                                { fileData: { fileUri: uploadResult.file.uri, mimeType: uploadResult.file.mimeType } }
+                            ]);
+                            responseText = result.response.text();
+                            try { await fileManager.deleteFile(uploadResult.file.name); } catch(e){}
+                        } else {
+                            // ইমেজের জন্য সরাসরি IPv4 HTTPS ব্যবহার করা হচ্ছে যাতে fetch failed না হয়
+                            let parts = [{ text: prompt }];
+                            if (inlineDataObj) {
+                                parts.push({
+                                    inline_data: {
+                                        mime_type: inlineDataObj.mimeType,
+                                        data: inlineDataObj.data
+                                    }
+                                });
+                            } else {
+                                parts[0].text += ` (Analyze based on filename: ${originalName})`;
+                            }
+
+                            const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${key}`;
+                            const response = await httpsPostJson(geminiUrl, {}, {
+                                contents: [{ parts }]
+                            });
+
+                            if (!response.ok) {
+                                throw new Error(`${response.status}: ${response.data?.error?.message || JSON.stringify(response.data)}`);
+                            }
+
+                            responseText = response.data.candidates[0].content.parts[0].text;
+                        }
+
+                        seoResult = parseAiJson(responseText);
+                        
+                        activeKeyPointer.gemini = keyIndex;
+                        usedKeyNumber = keyIndex + 1;
+                        usedKeyHint = `..${key.slice(-4)}`;
+                        console.log(`✨ Success with Gemini Key #${usedKeyNumber} [${modelName}] for: ${originalName}`);
+                        keySuccess = true;
+                        break; 
+                    } catch (err) {
+                        lastErrorMessage = err.message;
+                        console.log(`⚠️ Gemini Key #${keyIndex + 1} [${modelName}] Error:`, err.message);
+                        if (err.message.includes('429') || err.message.toLowerCase().includes('quota') || err.message.toLowerCase().includes('limit') || err.message.toLowerCase().includes('exhausted')) {
+                            isLimitReached = true;
+                            skipKey = true; 
+                        } else if (err.message.toLowerCase().includes('api_key_invalid') || err.message.includes('400') || err.message.includes('403')) {
+                            skipKey = true;
+                        }
+                    }
+                }
+                if (keySuccess) break;
+            }
         }
 
         if (seoResult) {
-            res.json(seoResult);
+            res.json({
+                ...seoResult,
+                usedKeyNumber,
+                usedKeyHint
+            });
         } else {
-            res.status(500).json({ error: "Failed to generate SEO.", details: lastError?.message });
+            res.status(isLimitReached ? 429 : 500).json({ 
+                error: isLimitReached ? "All API keys limit reached" : "Failed to generate SEO", 
+                details: lastErrorMessage 
+            });
         }
 
     } catch (error) {
